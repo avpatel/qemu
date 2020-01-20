@@ -120,6 +120,13 @@ uint32_t riscv_cpu_update_mip(RISCVCPU *cpu, uint32_t mask, uint32_t value)
     return old;
 }
 
+void riscv_cpu_set_rdtime_fn(CPURISCVState *env,
+                             uint64_t (*fn)(void *), void *opaque)
+{
+    env->rdtime_fn = fn;
+    env->rdtime_fn_opaque = opaque;
+}
+
 void riscv_cpu_set_mode(CPURISCVState *env, target_ulong newpriv)
 {
     if (newpriv > PRV_M) {
