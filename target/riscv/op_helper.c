@@ -154,4 +154,21 @@ void helper_tlb_flush(CPURISCVState *env)
     }
 }
 
+void helper_tlb_flush2(CPURISCVState *env, target_ulong src1, target_ulong src2)
+{
+    CPUState *cs = env_cpu(env);
+    if (!(env->priv >= PRV_S) ||
+        (env->priv == PRV_S &&
+         env->priv_ver >= PRIV_VERSION_1_10_0 &&
+         get_field(env->mstatus, MSTATUS_TVM))) {
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());
+    } else {
+        if (src1 != 0) {
+           tlb_flush_page(cs, src1);
+        } else {
+           tlb_flush(cs);
+        }
+    }
+}
+
 #endif /* !CONFIG_USER_ONLY */

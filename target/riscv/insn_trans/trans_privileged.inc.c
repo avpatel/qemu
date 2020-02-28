@@ -90,8 +90,15 @@ static bool trans_wfi(DisasContext *ctx, arg_wfi *a)
 static bool trans_sfence_vma(DisasContext *ctx, arg_sfence_vma *a)
 {
 #ifndef CONFIG_USER_ONLY
+    TCGv src1, src2;
     if (ctx->priv_ver >= PRIV_VERSION_1_10_0) {
-        gen_helper_tlb_flush(cpu_env);
+        src1 = tcg_temp_new();
+        src2 = tcg_temp_new();
+        gen_get_gpr(src1, a->rs1);
+        gen_get_gpr(src2, a->rs2);
+        gen_helper_tlb_flush2(cpu_env, src1, src2);
+        tcg_temp_free(src2);
+        tcg_temp_free(src1);
         return true;
     }
 #endif
