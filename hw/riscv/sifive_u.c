@@ -202,6 +202,20 @@ static void create_fdt(SiFiveUState *s, const struct MemmapEntry *memmap,
     g_free(cells);
     g_free(nodename);
 
+    nodename = g_strdup_printf("/soc/timer@%lx",
+        (long)memmap[SIFIVE_U_CLINT].base + SIFIVE_TIME_BASE);
+    qemu_fdt_add_subnode(fdt, nodename);
+    qemu_fdt_setprop_string(fdt, nodename, "compatible", "clocksource-mmio");
+    qemu_fdt_setprop_cells(fdt, nodename, "reg",
+        0x0, memmap[SIFIVE_U_CLINT].base + SIFIVE_TIME_BASE, 0x0, 0x8);
+    qemu_fdt_setprop_cell(fdt, nodename, "reg-io-width", 64);
+    qemu_fdt_setprop_cell(fdt, nodename, "bits", 64);
+    qemu_fdt_setprop_cell(fdt, nodename, "rating", 400);
+    qemu_fdt_setprop_cell(fdt, nodename, "clock-frequency",
+        SIFIVE_CLINT_TIMEBASE_FREQ);
+    qemu_fdt_setprop(fdt, nodename, "sched-clock", NULL, 0);
+    g_free(nodename);
+
     prci_phandle = phandle++;
     nodename = g_strdup_printf("/soc/clock-controller@%lx",
         (long)memmap[SIFIVE_U_PRCI].base);
