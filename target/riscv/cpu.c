@@ -317,6 +317,7 @@ void restore_state_to_opc(CPURISCVState *env, TranslationBlock *tb,
                           target_ulong *data)
 {
     env->pc = data[0];
+    env->trap_insn = data[1];
 }
 
 static void riscv_cpu_reset(DeviceState *dev)
@@ -332,6 +333,7 @@ static void riscv_cpu_reset(DeviceState *dev)
     env->mstatus &= ~(MSTATUS_MIE | MSTATUS_MPRV);
     env->mcause = 0;
     env->pc = env->resetvec;
+    env->trap_insn = 0;
 #endif
     cs->exception_index = EXCP_NONE;
     env->load_res = -1;
@@ -385,6 +387,10 @@ static void riscv_cpu_realize(DeviceState *dev, Error **errp)
 
     if (cpu->cfg.pmp) {
         set_feature(env, RISCV_FEATURE_PMP);
+    }
+
+    if (cpu->cfg.tinst) {
+        set_feature(env, RISCV_FEATURE_TINST);
     }
 
     /* If misa isn't set (rv32 and rv64 machines) set it here */
@@ -487,6 +493,7 @@ static Property riscv_cpu_properties[] = {
     DEFINE_PROP_STRING("priv_spec", RISCVCPU, cfg.priv_spec),
     DEFINE_PROP_BOOL("mmu", RISCVCPU, cfg.mmu, true),
     DEFINE_PROP_BOOL("pmp", RISCVCPU, cfg.pmp, true),
+    DEFINE_PROP_BOOL("tinst", RISCVCPU, cfg.tinst, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 

@@ -864,6 +864,12 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         case RISCV_EXCP_STORE_PAGE_FAULT:
             tval = env->badaddr;
             break;
+        case RISCV_EXCP_VIRT_INSTRUCTION_FAULT:
+        case RISCV_EXCP_ILLEGAL_INST:
+            if (riscv_feature(env, RISCV_FEATURE_TINST)) {
+                tval = env->trap_insn;
+            }
+            break;
         default:
             break;
         }
