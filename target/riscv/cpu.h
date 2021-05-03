@@ -157,12 +157,12 @@ struct CPURISCVState {
      */
     uint64_t mstatus;
 
-    target_ulong mip;
+    uint64_t mip;
 
-    uint32_t miclaim;
+    uint64_t miclaim;
 
-    target_ulong mie;
-    target_ulong mideleg;
+    uint64_t mie;
+    uint64_t mideleg;
 
     target_ulong sptbr;  /* until: priv-1.9.1 */
     target_ulong satp;   /* since: priv-1.10.0 */
@@ -179,15 +179,26 @@ struct CPURISCVState {
     target_ulong mcause;
     target_ulong mtval;  /* since: priv-1.10.0 */
 
+    /* AIA CSRs */
+    target_ulong miselect;
+    target_ulong siselect;
+
+    uint8_t miprio[64];
+    uint8_t siprio[64];
+
     /* Hypervisor CSRs */
     target_ulong hstatus;
     target_ulong hedeleg;
-    target_ulong hideleg;
+    uint64_t hideleg;
     target_ulong hcounteren;
     target_ulong htval;
     target_ulong htinst;
     target_ulong hgatp;
     uint64_t htimedelta;
+
+    /* AIA HS-mode CSRs */
+    uint8_t hviprio[64];
+    target_ulong hvicontrol;
 
     /* Virtual CSRs */
     /*
@@ -201,6 +212,9 @@ struct CPURISCVState {
     target_ulong vscause;
     target_ulong vstval;
     target_ulong vsatp;
+
+    /* AIA VS-mode CSRs */
+    target_ulong vsiselect;
 
     target_ulong mtval2;
     target_ulong mtinst;
@@ -235,6 +249,18 @@ struct CPURISCVState {
     /* machine specific rdtime callback */
     uint64_t (*rdtime_fn)(uint32_t);
     uint32_t rdtime_fn_arg;
+
+    /* machine specific AIA IMSIC read-modify-write callback */
+#define IMSIC_MAKE_REG(__isel, __priv, __virt, __vgein) \
+    ((((__vgein) & 0x3f) << 24) | (((__virt) & 0x1) << 20) | \
+     (((__priv) & 0x3) << 16) | (__isel & 0xffff))
+#define IMSIC_REG_ISEL(__reg)                  ((__reg) & 0xffff)
+#define IMSIC_REG_PRIV(__reg)                  (((__reg) >> 16) & 0x3)
+#define IMSIC_REG_VIRT(__reg)                  (((__reg) >> 20) & 0x1)
+#define IMSIC_REG_VGEIN(__reg)                 (((__reg) >> 24) & 0x3f)
+    int (*imsic_rmw_fn[4])(void *arg, target_ulong reg, target_ulong *val,
+                        target_ulong new_val, target_ulong write_mask);
+    void *imsic_rmw_fn_arg[4];
 
     /* True if in debugger mode.  */
     bool debugger;
@@ -340,6 +366,11 @@ int riscv_cpu_write_elf32_note(WriteCoreDumpFunction f, CPUState *cs,
                                int cpuid, void *opaque);
 int riscv_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
 int riscv_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
+int riscv_cpu_hviprio_index2irq(int index, int *out_irq, int *out_rdzero);
+uint8_t riscv_cpu_default_priority(int irq);
+int riscv_cpu_mirq_pending(CPURISCVState *env);
+int riscv_cpu_sirq_pending(CPURISCVState *env);
+int riscv_cpu_vsirq_pending(CPURISCVState *env);
 bool riscv_cpu_exec_interrupt(CPUState *cs, int interrupt_request);
 bool riscv_cpu_fp_enabled(CPURISCVState *env);
 bool riscv_cpu_virt_enabled(CPURISCVState *env);
@@ -369,9 +400,16 @@ void riscv_cpu_list(void);
 
 #ifndef CONFIG_USER_ONLY
 void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env);
-int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint32_t interrupts);
-uint32_t riscv_cpu_update_mip(RISCVCPU *cpu, uint32_t mask, uint32_t value);
+int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint64_t interrupts);
+uint64_t riscv_cpu_update_mip(RISCVCPU *cpu, uint64_t mask, uint64_t value);
 #define BOOL_TO_MASK(x) (-!!(x)) /* helper for riscv_cpu_update_mip value */
+void riscv_cpu_set_imsic_rmw_fn(CPURISCVState *env, uint32_t priv,
+                                int (*rmw_fn)(void *arg,
+                                              target_ulong reg,
+                                              target_ulong *val,
+                                              target_ulong new_val,
+                                              target_ulong write_mask),
+                                void *rmw_fn_arg);
 void riscv_cpu_set_rdtime_fn(CPURISCVState *env, uint64_t (*fn)(uint32_t),
                              uint32_t arg);
 #endif

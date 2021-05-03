@@ -251,11 +251,11 @@ static void riscv_cpu_dump_state(CPUState *cs, FILE *f, int flags)
         qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "vsstatus ",
                      (target_ulong)env->vsstatus);
     }
-    qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "mip     ", env->mip);
-    qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "mie     ", env->mie);
-    qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "mideleg ", env->mideleg);
+    qemu_fprintf(f, " %s %016" PRIx64 "\n", "mip     ", env->mip);
+    qemu_fprintf(f, " %s %016" PRIx64 "\n", "mie     ", env->mie);
+    qemu_fprintf(f, " %s %016" PRIx64 "\n", "mideleg ", env->mideleg);
     if (riscv_has_ext(env, RVH)) {
-        qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "hideleg ", env->hideleg);
+        qemu_fprintf(f, " %s %016" PRIx64 "\n", "hideleg ", env->hideleg);
     }
     qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "medeleg ", env->medeleg);
     if (riscv_has_ext(env, RVH)) {
@@ -340,6 +340,8 @@ void restore_state_to_opc(CPURISCVState *env, TranslationBlock *tb,
 
 static void riscv_cpu_reset(DeviceState *dev)
 {
+    uint8_t iprio;
+    int i, irq, rdzero;
     CPUState *cs = CPU(dev);
     RISCVCPU *cpu = RISCV_CPU(cs);
     RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cpu);
@@ -352,6 +354,23 @@ static void riscv_cpu_reset(DeviceState *dev)
     env->mcause = 0;
     env->pc = env->resetvec;
     env->two_stage_lookup = false;
+
+    /* Initialized default priorities of local interrupts. */
+    for (i = 0; i < ARRAY_SIZE(env->miprio); i++) {
+        iprio = riscv_cpu_default_priority(i);
+        env->miprio[i] = iprio;
+        env->siprio[i] = iprio;
+        env->hviprio[i] = IPRIO_DEFAULT_MMAXIPRIO;
+    }
+    i = 0;
+    while (!riscv_cpu_hviprio_index2irq(i, &irq, &rdzero)) {
+        if (rdzero) {
+            env->hviprio[irq] = 0;
+        } else {
+            env->hviprio[irq] = env->miprio[irq];
+        }
+        i++;
+    }
 #endif
     cs->exception_index = EXCP_NONE;
     env->load_res = -1;
