@@ -132,11 +132,6 @@ static void set_vext_version(CPURISCVState *env, int vext_ver)
     env->vext_ver = vext_ver;
 }
 
-static void set_feature(CPURISCVState *env, int feature)
-{
-    env->features |= (1ULL << feature);
-}
-
 static void set_resetvec(CPURISCVState *env, int resetvec)
 {
 #ifndef CONFIG_USER_ONLY
@@ -407,15 +402,15 @@ static void riscv_cpu_realize(DeviceState *dev, Error **errp)
     set_vext_version(env, vext_version);
 
     if (cpu->cfg.mmu) {
-        set_feature(env, RISCV_FEATURE_MMU);
+        riscv_set_feature(env, RISCV_FEATURE_MMU);
     }
 
     if (cpu->cfg.pmp) {
-        set_feature(env, RISCV_FEATURE_PMP);
+        riscv_set_feature(env, RISCV_FEATURE_PMP);
     }
 
     if (cpu->cfg.aia) {
-        set_feature(env, RISCV_FEATURE_AIA);
+        riscv_set_feature(env, RISCV_FEATURE_AIA);
     }
 
     set_resetvec(env, cpu->cfg.resetvec);
