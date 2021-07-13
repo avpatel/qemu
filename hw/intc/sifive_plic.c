@@ -145,16 +145,16 @@ static void sifive_plic_update(SiFivePLICState *plic)
         switch (mode) {
         case PLICMode_M:
             if (level) {
-                qemu_irq_raise(plic->m_external_irqs[hartid]);
+                qemu_irq_raise(plic->m_external_irqs[hartid - plic->hartid_base]);
             } else {
-                qemu_irq_lower(plic->m_external_irqs[hartid]);
+                qemu_irq_lower(plic->m_external_irqs[hartid - plic->hartid_base]);
             }
             break;
         case PLICMode_S:
             if (level) {
-                qemu_irq_raise(plic->s_external_irqs[hartid]);
+                qemu_irq_raise(plic->s_external_irqs[hartid - plic->hartid_base]);
             } else {
-                qemu_irq_lower(plic->s_external_irqs[hartid]);
+                qemu_irq_lower(plic->s_external_irqs[hartid - plic->hartid_base]);
             }
             break;
         default:
