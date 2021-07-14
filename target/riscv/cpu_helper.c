@@ -46,7 +46,10 @@ static int riscv_cpu_local_irq_pending(CPURISCVState *env)
 
     target_ulong pending = env->mip & env->mie &
                                ~(MIP_VSSIP | MIP_VSTIP | MIP_VSEIP);
-    target_ulong vspending = (env->mip & env->mie &
+    target_ulong vsgemask =
+                (target_ulong)1 << get_field(env->hstatus, HSTATUS_VGEIN);
+    target_ulong vsgein = (env->hgeip & vsgemask) ? MIP_VSEIP : 0;
+    target_ulong vspending = ((env->mip | vsgein) & env->mie &
                               (MIP_VSSIP | MIP_VSTIP | MIP_VSEIP));
 
     target_ulong mie    = env->priv < PRV_M ||
@@ -165,6 +168,28 @@ void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env)
         env->satp_hs = env->satp;
         env->satp = env->vsatp;
     }
+}
+
+target_ulong riscv_cpu_get_geilen(CPURISCVState *env)
+{
+    if (!riscv_has_ext(env, RVH)) {
+        return 0;
+    }
+
+    return env->geilen;
+}
+
+void riscv_cpu_set_geilen(CPURISCVState *env, target_ulong geilen)
+{
+    if (!riscv_has_ext(env, RVH)) {
+        return;
+    }
+
+    if (geilen > (TARGET_LONG_BITS - 1)) {
+        return;
+    }
+
+    env->geilen = geilen;
 }
 
 bool riscv_cpu_virt_enabled(CPURISCVState *env)
