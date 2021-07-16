@@ -261,11 +261,11 @@ static void riscv_cpu_dump_state(CPUState *cs, FILE *f, int flags)
         qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "vsstatus ",
                      (target_ulong)env->vsstatus);
     }
-    qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "mip     ", env->mip);
-    qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "mie     ", env->mie);
-    qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "mideleg ", env->mideleg);
+    qemu_fprintf(f, " %s %016" PRIx64 "\n", "mip     ", env->mip);
+    qemu_fprintf(f, " %s %016" PRIx64 "\n", "mie     ", env->mie);
+    qemu_fprintf(f, " %s %016" PRIx64 "\n", "mideleg ", env->mideleg);
     if (riscv_has_ext(env, RVH)) {
-        qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "hideleg ", env->hideleg);
+        qemu_fprintf(f, " %s %016" PRIx64 "\n", "hideleg ", env->hideleg);
     }
     qemu_fprintf(f, " %s " TARGET_FMT_lx "\n", "medeleg ", env->medeleg);
     if (riscv_has_ext(env, RVH)) {
