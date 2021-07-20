@@ -196,6 +196,7 @@ struct CPURISCVState {
     uint64_t htimedelta;
 
     /* Hypervisor controlled virtual interrupt priorities */
+    target_ulong hvicontrol;
     uint8_t hviprio[64];
 
     /* Virtual CSRs */
