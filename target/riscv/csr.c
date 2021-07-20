@@ -824,6 +824,14 @@ static int aia_xlate_vs_csrno(CPURISCVState *env, int csrno)
         return CSR_VSISELECT;
     case CSR_SIREG:
         return CSR_VSIREG;
+    case CSR_SSETEIPNUM:
+        return CSR_VSSETEIPNUM;
+    case CSR_SCLREIPNUM:
+        return CSR_VSCLREIPNUM;
+    case CSR_SSETEIENUM:
+        return CSR_VSSETEIENUM;
+    case CSR_SCLREIENUM:
+        return CSR_VSCLREIENUM;
     default:
         return csrno;
     };
@@ -955,6 +963,246 @@ static int rmw_xireg(CPURISCVState *env, int csrno, target_ulong *val,
                                     AIA_MAKE_IREG(isel, priv, virt, vgein),
                                     val, new_val, wr_mask);
         }
+    }
+
+done:
+    if (ret) {
+        return (riscv_cpu_virt_enabled(env) && virt) ?
+               -RISCV_EXCP_VIRT_INSTRUCTION_FAULT : -RISCV_EXCP_ILLEGAL_INST;
+    }
+    return 0;
+}
+
+static int read_xsetclreinum(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    bool virt;
+    int ret = -EINVAL;
+    target_ulong vgein, priv;
+
+    /* Translate CSR number for VS-mode */
+    csrno = aia_xlate_vs_csrno(env, csrno);
+
+    /* Decode register details from CSR number */
+    virt = false;
+    switch (csrno) {
+    case CSR_MSETEIPNUM:
+    case CSR_MCLREIPNUM:
+    case CSR_MSETEIENUM:
+    case CSR_MCLREIENUM:
+        priv = PRV_M;
+        break;
+    case CSR_SSETEIPNUM:
+    case CSR_SCLREIPNUM:
+    case CSR_SSETEIENUM:
+    case CSR_SCLREIENUM:
+        priv = PRV_S;
+        break;
+    case CSR_VSSETEIPNUM:
+    case CSR_VSCLREIPNUM:
+    case CSR_VSSETEIENUM:
+    case CSR_VSCLREIENUM:
+        priv = PRV_S;
+        virt = true;
+        break;
+    default:
+         goto done;
+    };
+
+    /* IMSIC CSRs only available when machine implements IMSIC. */
+    if (!env->aia_ireg_rmw_fn[priv]) {
+        goto done;
+    }
+
+    /* Find the selected guest interrupt file */
+    vgein = (virt) ? get_field(env->hstatus, HSTATUS_VGEIN) : 0;
+
+    /* Selected guest interrupt file should be valid */
+    if (virt && (!vgein || env->geilen < vgein)) {
+        goto done;
+    }
+
+    /* Set/Clear CSRs always read zero */
+    ret = 0;
+    if (val) {
+        *val = 0;
+    }
+
+done:
+    if (ret) {
+        return (riscv_cpu_virt_enabled(env) && virt) ?
+               -RISCV_EXCP_VIRT_INSTRUCTION_FAULT : -RISCV_EXCP_ILLEGAL_INST;
+    }
+    return 0;
+}
+
+static int write_xsetclreinum(CPURISCVState *env, int csrno, target_ulong val)
+{
+    int ret = -EINVAL;
+    bool set, pend, virt;
+    target_ulong priv, isel, vgein;
+    target_ulong new_val, wr_mask;
+
+    /* Translate CSR number for VS-mode */
+    csrno = aia_xlate_vs_csrno(env, csrno);
+
+    /* Decode register details from CSR number */
+    virt = set = pend = false;
+    switch (csrno) {
+    case CSR_MSETEIPNUM:
+        priv = PRV_M;
+        set = true;
+        break;
+    case CSR_MCLREIPNUM:
+        priv = PRV_M;
+        pend = true;
+        break;
+    case CSR_MSETEIENUM:
+        priv = PRV_M;
+        set = true;
+        break;
+    case CSR_MCLREIENUM:
+        priv = PRV_M;
+        break;
+    case CSR_SSETEIPNUM:
+        priv = PRV_S;
+        set = true;
+        pend = true;
+        break;
+    case CSR_SCLREIPNUM:
+        priv = PRV_S;
+        pend = true;
+        break;
+    case CSR_SSETEIENUM:
+        priv = PRV_S;
+        set = true;
+        break;
+    case CSR_SCLREIENUM:
+        priv = PRV_S;
+        break;
+    case CSR_VSSETEIPNUM:
+        priv = PRV_S;
+        virt = true;
+        set = true;
+        pend = true;
+        break;
+    case CSR_VSCLREIPNUM:
+        priv = PRV_S;
+        virt = true;
+        pend = true;
+        break;
+    case CSR_VSSETEIENUM:
+        priv = PRV_S;
+        virt = true;
+        set = true;
+        break;
+    case CSR_VSCLREIENUM:
+        priv = PRV_S;
+        virt = true;
+        break;
+    default:
+         goto done;
+    };
+
+    /* IMSIC CSRs only available when machine implements IMSIC. */
+    if (!env->aia_ireg_rmw_fn[priv]) {
+        goto done;
+    }
+
+    /* Find target interrupt pending/enable register */
+    isel = (val / TARGET_LONG_BITS);
+    isel *= (TARGET_LONG_BITS / IMSIC_EIPx_BITS);
+    isel += (pend) ? ISELECT_IMSIC_EIP0 : ISELECT_IMSIC_EIE0;
+
+    /* Find the interrupt bit to be set/clear */
+    wr_mask = ((target_ulong)1) << (val % TARGET_LONG_BITS);
+    new_val = (set) ? wr_mask : 0;
+
+    /* Find the selected guest interrupt file */
+    vgein = (virt) ? get_field(env->hstatus, HSTATUS_VGEIN) : 0;
+
+    /* Selected guest interrupt file should be valid */
+    if (virt && (!vgein || env->geilen < vgein)) {
+        goto done;
+    }
+
+    /* Call machine specific IMSIC register emulation */
+    ret = env->aia_ireg_rmw_fn[priv](env->aia_ireg_rmw_fn_arg[priv],
+                                     AIA_MAKE_IREG(isel, priv, virt, vgein),
+                                     NULL, new_val, wr_mask);
+
+done:
+    if (ret) {
+        return (riscv_cpu_virt_enabled(env) && virt) ?
+               -RISCV_EXCP_VIRT_INSTRUCTION_FAULT : -RISCV_EXCP_ILLEGAL_INST;
+    }
+    return 0;
+}
+
+static int read_xclaimei(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    bool virt;
+    int ret = -EINVAL;
+    target_ulong priv, isel, vgein;
+    target_ulong topei, wr_mask;
+
+    /* Decode register details from CSR number */
+    virt = false;
+    switch (csrno) {
+    case CSR_MCLAIMEI:
+        priv = PRV_M;
+        break;
+    case CSR_SCLAIMEI:
+        priv = PRV_S;
+        virt = riscv_cpu_virt_enabled(env);
+        break;
+    default:
+        goto done;
+    };
+
+    /* IMSIC CSRs only available when machine implements IMSIC. */
+    if (!env->aia_ireg_rmw_fn[priv]) {
+        goto done;
+    }
+
+    /* Find the selected guest interrupt file */
+    vgein = (virt) ? get_field(env->hstatus, HSTATUS_VGEIN) : 0;
+
+    /* Selected guest interrupt file should be valid */
+    if (virt && (!vgein || env->geilen < vgein)) {
+        goto done;
+    }
+
+    /* Call machine specific IMSIC register emulation for reading TOPEI */
+    ret = env->aia_ireg_rmw_fn[priv](env->aia_ireg_rmw_fn_arg[priv],
+                    AIA_MAKE_IREG(ISELECT_IMSIC_TOPEI, priv, virt, vgein),
+                    &topei, 0, 0);
+    if (ret) {
+        goto done;
+    }
+
+    /* If no interrupt pending then we are done */
+    if (!topei) {
+        goto update_retval_done;
+    }
+
+    /* Find target interrupt pending register */
+    isel = ((topei >> TOPI_IID_SHIFT) / TARGET_LONG_BITS);
+    isel *= (TARGET_LONG_BITS / IMSIC_EIPx_BITS);
+    isel += ISELECT_IMSIC_EIP0;
+
+    /* Find the interrupt bit to be cleared */
+    wr_mask = ((target_ulong)1) <<
+                 ((topei >> TOPI_IID_SHIFT) % TARGET_LONG_BITS);
+
+    /* Call machine specific IMSIC register emulation to clear pending bit */
+    ret = env->aia_ireg_rmw_fn[priv](env->aia_ireg_rmw_fn_arg[priv],
+                                     AIA_MAKE_IREG(isel, priv, virt, vgein),
+                                     NULL, 0, wr_mask);
+
+update_retval_done:
+    /* Update return value */
+    if (val) {
+        *val = topei;
     }
 
 done:
@@ -2334,6 +2582,13 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     /* Machine-Level Interrupts (AIA) */
     [CSR_MTOPI]    = { "mtopi",    aia_any,   read_mtopi },
 
+    /* Machine-Level IMSIC Interface (AIA) */
+    [CSR_MSETEIPNUM] = { "mseteipnum", aia_any, read_xsetclreinum, write_xsetclreinum },
+    [CSR_MCLREIPNUM] = { "mclreipnum", aia_any, read_xsetclreinum, write_xsetclreinum },
+    [CSR_MSETEIENUM] = { "mseteienum", aia_any, read_xsetclreinum, write_xsetclreinum },
+    [CSR_MCLREIENUM] = { "mclreienum", aia_any, read_xsetclreinum, write_xsetclreinum },
+    [CSR_MCLAIMEI]   = { "mclaimei",   aia_any, read_xclaimei },
+
     /* Machine-Level High-Half CSRs (AIA) */
     [CSR_MIDELEGH] = { "midelegh", aia_any32, NULL, NULL, rmw_midelegh },
     [CSR_MIEH]     = { "mieh",     aia_any32, NULL, NULL, rmw_mieh     },
@@ -2361,6 +2616,13 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
 
     /* Supervisor-Level Interrupts (AIA) */
     [CSR_STOPI]      = { "stopi",      aia_smode, read_stopi },
+
+    /* Supervisor-Level IMSIC Interface (AIA) */
+    [CSR_SSETEIPNUM] = { "sseteipnum", aia_smode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_SCLREIPNUM] = { "sclreipnum", aia_smode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_SSETEIENUM] = { "sseteienum", aia_smode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_SCLREIENUM] = { "sclreienum", aia_smode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_SCLAIMEI]   = { "sclaimei",   aia_smode, read_xclaimei },
 
     /* Supervisor-Level High-Half CSRs (AIA) */
     [CSR_SIEH]       = { "sieh",   aia_smode32, NULL, NULL, rmw_sieh },
@@ -2405,6 +2667,12 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
 
     /* VS-Level Interrupts (H-extension with AIA) */
     [CSR_VSTOPI]      = { "vstopi",      aia_hmode, read_vstopi },
+
+    /* VS-Level IMSIC Interface (H-extension with AIA) */
+    [CSR_VSSETEIPNUM] = { "vsseteipnum", aia_hmode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_VSCLREIPNUM] = { "vsclreipnum", aia_hmode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_VSSETEIENUM] = { "vsseteienum", aia_hmode, read_xsetclreinum, write_xsetclreinum },
+    [CSR_VSCLREIENUM] = { "vsclreienum", aia_hmode, read_xsetclreinum, write_xsetclreinum },
 
     /* Hypervisor and VS-Level High-Half CSRs (H-extension with AIA) */
     [CSR_HIDELEGH]    = { "hidelegh",    aia_hmode32, NULL, NULL, rmw_hidelegh },
