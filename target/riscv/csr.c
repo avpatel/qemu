@@ -838,7 +838,7 @@ static RISCVException sstc(CPURISCVState *env, int csrno)
     }
 
     if (riscv_cpu_virt_enabled(env)) {
-        if (!(get_field(env->hcounteren, COUNTEREN_TM) &
+        if (!(get_field(env->hcounteren, COUNTEREN_TM) &&
               get_field(env->henvcfg, HENVCFG_STCE))) {
             return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
         }
@@ -886,9 +886,7 @@ static RISCVException write_vstimecmp(CPURISCVState *env, int csrno,
     } else {
         env->vstimecmp = val;
     }
-
-    riscv_timer_write_timecmp(cpu, env->vstimer, env->vstimecmp,
-                              env->htimedelta, MIP_VSTIP);
+    riscv_vstimer_update(cpu);
 
     return RISCV_EXCP_NONE;
 }
@@ -899,8 +897,7 @@ static RISCVException write_vstimecmph(CPURISCVState *env, int csrno,
     RISCVCPU *cpu = env_archcpu(env);
 
     env->vstimecmp = deposit64(env->vstimecmp, 32, 32, (uint64_t)val);
-    riscv_timer_write_timecmp(cpu, env->vstimer, env->vstimecmp,
-                              env->htimedelta, MIP_VSTIP);
+    riscv_vstimer_update(cpu);
 
     return RISCV_EXCP_NONE;
 }
@@ -944,7 +941,7 @@ static RISCVException write_stimecmp(CPURISCVState *env, int csrno,
         env->stimecmp = val;
     }
 
-    riscv_timer_write_timecmp(cpu, env->stimer, env->stimecmp, 0, MIP_STIP);
+    riscv_stimer_update(cpu);
 
     return RISCV_EXCP_NONE;
 }
@@ -959,7 +956,7 @@ static RISCVException write_stimecmph(CPURISCVState *env, int csrno,
     }
 
     env->stimecmp = deposit64(env->stimecmp, 32, 32, (uint64_t)val);
-    riscv_timer_write_timecmp(cpu, env->stimer, env->stimecmp, 0, MIP_STIP);
+    riscv_stimer_update(cpu);
 
     return RISCV_EXCP_NONE;
 }
@@ -2722,6 +2719,8 @@ static RISCVException read_htimedelta(CPURISCVState *env, int csrno,
 static RISCVException write_htimedelta(CPURISCVState *env, int csrno,
                                        target_ulong val)
 {
+    RISCVCPU *cpu = env_archcpu(env);
+
     if (!env->rdtime_fn) {
         return RISCV_EXCP_ILLEGAL_INST;
     }
@@ -2731,6 +2730,11 @@ static RISCVException write_htimedelta(CPURISCVState *env, int csrno,
     } else {
         env->htimedelta = val;
     }
+
+    if (cpu->cfg.ext_sstc && env->rdtime_fn) {
+        riscv_vstimer_update(cpu);
+    }
+
     return RISCV_EXCP_NONE;
 }
 
@@ -2748,11 +2752,18 @@ static RISCVException read_htimedeltah(CPURISCVState *env, int csrno,
 static RISCVException write_htimedeltah(CPURISCVState *env, int csrno,
                                         target_ulong val)
 {
+    RISCVCPU *cpu = env_archcpu(env);
+
     if (!env->rdtime_fn) {
         return RISCV_EXCP_ILLEGAL_INST;
     }
 
     env->htimedelta = deposit64(env->htimedelta, 32, 32, (uint64_t)val);
+
+    if (cpu->cfg.ext_sstc && env->rdtime_fn) {
+        riscv_vstimer_update(cpu);
+    }
+
     return RISCV_EXCP_NONE;
 }
 

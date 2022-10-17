@@ -22,9 +22,8 @@
 #include "cpu.h"
 #include "qemu/timer.h"
 
-void riscv_timer_write_timecmp(RISCVCPU *cpu, QEMUTimer *timer,
-                               uint64_t timecmp, uint64_t delta,
-                               uint32_t timer_irq);
+void riscv_stimer_update(RISCVCPU *cpu);
+void riscv_vstimer_update(RISCVCPU *cpu);
 void riscv_timer_init(RISCVCPU *cpu);
 
 #endif

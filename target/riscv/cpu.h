@@ -375,8 +375,7 @@ struct CPUArchState {
     float_status fp_status;
 
     /* Fields from here on are preserved across CPU reset. */
-    QEMUTimer *stimer; /* Internal timer for S-mode interrupt */
-    QEMUTimer *vstimer; /* Internal timer for VS-mode interrupt */
+    QEMUTimer *timer; /* Internal timer */
     bool vstime_irq;
 
     hwaddr kernel_addr;

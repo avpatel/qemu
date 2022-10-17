@@ -20,81 +20,66 @@
 #include "qemu/log.h"
 #include "cpu_bits.h"
 #include "time_helper.h"
-#include "hw/intc/riscv_aclint.h"
 
-static void riscv_vstimer_cb(void *opaque)
+#define RISCV_TIMER_CMP_NS 2000000UL
+
+void riscv_stimer_update(RISCVCPU *cpu)
 {
-    RISCVCPU *cpu = opaque;
     CPURISCVState *env = &cpu->env;
-    env->vstime_irq = 1;
-    riscv_cpu_update_mip(cpu, MIP_VSTIP, BOOL_TO_MASK(1));
-}
 
-static void riscv_stimer_cb(void *opaque)
-{
-    RISCVCPU *cpu = opaque;
-    riscv_cpu_update_mip(cpu, MIP_STIP, BOOL_TO_MASK(1));
-}
-
-/*
- * Called when timecmp is written to update the QEMU timer or immediately
- * trigger timer interrupt if mtimecmp <= current timer value.
- */
-void riscv_timer_write_timecmp(RISCVCPU *cpu, QEMUTimer *timer,
-                               uint64_t timecmp, uint64_t delta,
-                               uint32_t timer_irq)
-{
-    uint64_t diff, ns_diff, next;
-    CPURISCVState *env = &cpu->env;
-    RISCVAclintMTimerState *mtimer = env->rdtime_fn_arg;
-    uint32_t timebase_freq = mtimer->timebase_freq;
-    uint64_t rtc_r = env->rdtime_fn(env->rdtime_fn_arg) + delta;
-
-    if (timecmp <= rtc_r) {
-        /*
-         * If we're setting an stimecmp value in the "past",
-         * immediately raise the timer interrupt
-         */
-        if (timer_irq == MIP_VSTIP) {
-            env->vstime_irq = 1;
-        }
-        riscv_cpu_update_mip(cpu, timer_irq, BOOL_TO_MASK(1));
+    if (!(env->menvcfg & MENVCFG_STCE)) {
         return;
     }
 
-    if (timer_irq == MIP_VSTIP) {
-        env->vstime_irq = 0;
-    }
-    /* Clear the [V]STIP bit in mip */
-    riscv_cpu_update_mip(cpu, timer_irq, BOOL_TO_MASK(0));
-
-    /* otherwise, set up the future timer interrupt */
-    diff = timecmp - rtc_r;
-    /* back to ns (note args switched in muldiv64) */
-    ns_diff = muldiv64(diff, NANOSECONDS_PER_SECOND, timebase_freq);
-
-    /*
-     * check if ns_diff overflowed and check if the addition would potentially
-     * overflow
-     */
-    if ((NANOSECONDS_PER_SECOND > timebase_freq && ns_diff < diff) ||
-        ns_diff > INT64_MAX) {
-        next = INT64_MAX;
+    if (env->stimecmp <= env->rdtime_fn(env->rdtime_fn_arg)) {
+        if (!(env->mip & MIP_STIP)) {
+            riscv_cpu_update_mip(cpu, MIP_STIP, BOOL_TO_MASK(1));
+        }
     } else {
-        /*
-         * as it is very unlikely qemu_clock_get_ns will return a value
-         * greater than INT64_MAX, no additional check is needed for an
-         * unsigned integer overflow.
-         */
-        next = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ns_diff;
-        /*
-         * if ns_diff is INT64_MAX next may still be outside the range
-         * of a signed integer.
-         */
-        next = MIN(next, INT64_MAX);
+        if (env->mip & MIP_STIP) {
+            riscv_cpu_update_mip(cpu, MIP_STIP, BOOL_TO_MASK(0));
+        }
+    }
+}
+
+void riscv_vstimer_update(RISCVCPU *cpu)
+{
+    CPURISCVState *env = &cpu->env;
+
+    if (!(env->menvcfg & MENVCFG_STCE) || !(env->henvcfg & HENVCFG_STCE)) {
+        return;
     }
 
-    timer_mod(timer, next);
+    if (env->vstimecmp <=
+        (env->rdtime_fn(env->rdtime_fn_arg) + env->htimedelta)) {
+        if (!env->vstime_irq) {
+            env->vstime_irq = true;
+            /* Dummy MIP update to invoke cpu_interrupt() */
+            riscv_cpu_update_mip(cpu, 0, BOOL_TO_MASK(0));
+        }
+    } else {
+        if (env->vstime_irq) {
+            env->vstime_irq = false;
+            /* Dummy MIP update to invoke cpu_interrupt() */
+            riscv_cpu_update_mip(cpu, 0, BOOL_TO_MASK(0));
+        }
+    }
+}
+
+static void riscv_timer_cb(void *opaque)
+{
+    RISCVCPU *cpu = opaque;
+    CPURISCVState *env = &cpu->env;
+
+    /* Update timer interrupts */
+    riscv_stimer_update(cpu);
+    riscv_vstimer_update(cpu);
+
+    /* Re-start the timer */
+    if (cpu->cfg.ext_sstc) {
+        timer_mod(env->timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + RISCV_TIMER_CMP_NS);
+    }
 }
 
 void riscv_timer_init(RISCVCPU *cpu)
@@ -106,9 +91,14 @@ void riscv_timer_init(RISCVCPU *cpu)
     }
 
     env = &cpu->env;
-    env->stimer = timer_new_ns(QEMU_CLOCK_VIRTUAL, &riscv_stimer_cb, cpu);
-    env->stimecmp = 0;
+    env->stimecmp = UINT64_MAX;
+    env->vstimecmp = UINT64_MAX;
+    env->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, &riscv_timer_cb, cpu);
+    env->vstime_irq = false;
 
-    env->vstimer = timer_new_ns(QEMU_CLOCK_VIRTUAL, &riscv_vstimer_cb, cpu);
-    env->vstimecmp = 0;
+    /* Start the timer */
+    if (cpu->cfg.ext_sstc) {
+        timer_mod(env->timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + RISCV_TIMER_CMP_NS);
+    }
 }
